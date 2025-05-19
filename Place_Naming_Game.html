@@ -173,9 +173,15 @@
                 <li>In "Place and Country" mode, type the place name followed by a comma and then the country name (e.g., "Paris, France") where extra spaces around the comma will be ignored, and you must enter both the place and country to get points</li>
                 <li>Each correct answer adds to your score</li>
                 <li>You can be off by 1 letter or have transposed adjacent letters in your answer (applies to both place and country in "Place and Country" mode)</li>
-                <li>Use the Search feature to find places containing a specific string (Include), optionally excluding another string (Not Include), and filter by the starting or ending letter, country, and city name length</li>
-                <li>Use "Display Places" to see 8 random example places based on current filters</li>
-                <li>Pause the game if you need to take a break</li>
+                <li>Use the Search feature to find places. For "Include" and "Not Include", you can enter multiple strings separated by commas (e.g., "new, park" or "old, city").
+                    <ul>
+                        <li><strong>Include:</strong> All specified strings must be present in the place name or country.</li>
+                        <li><strong>Not Include:</strong> None of the specified strings should be present in the place name or country.</li>
+                    </ul>
+                </li>
+                <li>Optionally filter search by starting/ending letter, country, and city name length.</li>
+                <li>Use "Display Places" to see 8 random example places based on current game filters.</li>
+                <li>Pause the game if you need to take a break.</li>
             </ul>
         </div>
 
@@ -204,11 +210,11 @@
             <div class="row mb-3">
                 <div class="col-md-6">
                     <label for="searchIncludeInput" class="form-label">Include</label>
-                    <input type="text" id="searchIncludeInput" class="form-control" placeholder="String to include">
+                    <input type="text" id="searchIncludeInput" class="form-control" placeholder="e.g., new, park">
                 </div>
                 <div class="col-md-6">
-                    <label for="searchExcludeInput" class="form-label">Not Include</label>
-                    <input type="text" id="searchExcludeInput" class="form-control" placeholder="String to exclude">
+                    <label for="searchExcludeInput" class="form-label">Don't Include</label>
+                    <input type="text" id="searchExcludeInput" class="form-control" placeholder="e.g., old, city">
                 </div>
             </div>
             <div class="row mb-3">
@@ -395,14 +401,21 @@
         }
 
         function initGame() {
-            if (typeof citiesData === 'undefined' || !Array.isArray(citiesData)) {
-                allPlaces = [];
-            } else {
-                allPlaces = citiesData.filter(place =>
-                    place.city && typeof place.city === 'string' && place.city.trim() !== '' && !forbiddenCharRegex.test(place.city) &&
-                    place.country_name && typeof place.country_name === 'string' && place.country_name.trim() !== '' && !forbiddenCharRegex.test(place.country_name)
-                );
+            const uniquePlacesMap = new Map();
+            if (typeof citiesData !== 'undefined' && Array.isArray(citiesData)) {
+                citiesData.forEach(placeData => {
+                    if (placeData.city && typeof placeData.city === 'string' && placeData.city.trim() !== '' && !forbiddenCharRegex.test(placeData.city) &&
+                        placeData.country_name && typeof placeData.country_name === 'string' && placeData.country_name.trim() !== '' && !forbiddenCharRegex.test(placeData.country_name)) {
+                        const cityClean = placeData.city.trim();
+                        const countryClean = placeData.country_name.trim();
+                        const key = `${cityClean.toLowerCase()}|${countryClean.toLowerCase()}`;
+                        if (!uniquePlacesMap.has(key)) {
+                            uniquePlacesMap.set(key, { city: cityClean, country_name: countryClean });
+                        }
+                    }
+                });
             }
+            allPlaces = Array.from(uniquePlacesMap.values());
 
             countries.clear();
             allPlaces.forEach(place => {
@@ -773,8 +786,15 @@
         }
 
         function performSearch() {
-            const includeTerm = searchIncludeInput.value.trim().toLowerCase();
-            const excludeTerm = searchExcludeInput.value.trim().toLowerCase();
+            const includeTerms = searchIncludeInput.value.trim().toLowerCase()
+                .split(',')
+                .map(term => term.trim())
+                .filter(term => term.length > 0);
+            const excludeTerms = searchExcludeInput.value.trim().toLowerCase()
+                .split(',')
+                .map(term => term.trim())
+                .filter(term => term.length > 0);
+
             const selectedSearchStartLetter = searchStartLetterSelect.value;
             const selectedSearchEndLetter = searchEndLetterSelect.value;
             const selectedSearchCountry = searchCountrySelect.value;
@@ -786,8 +806,8 @@
 
             searchResultsContainer.innerHTML = '';
 
-            const isSearchEffectivelyEmpty = !includeTerm &&
-                                          !excludeTerm &&
+            const isSearchEffectivelyEmpty = includeTerms.length === 0 &&
+                                          excludeTerms.length === 0 &&
                                           selectedSearchStartLetter === 'any' &&
                                           selectedSearchEndLetter === 'any' &&
                                           selectedSearchCountry === 'any' &&
@@ -818,8 +838,17 @@
                 const countryLower = place.country_name.toLowerCase();
                 const cityLength = place.city.length;
 
-                const matchesIncludeTerm = !includeTerm || cityLower.includes(includeTerm) || countryLower.includes(includeTerm);
-                const matchesExcludeTerm = !excludeTerm || (!cityLower.includes(excludeTerm) && !countryLower.includes(excludeTerm));
+                const matchesAllIncludeTerms = includeTerms.length === 0 || includeTerms.every(term =>
+                    cityLower.includes(term) || countryLower.includes(term)
+                );
+
+                const isExcluded = excludeTerms.length > 0 && excludeTerms.some(term =>
+                    cityLower.includes(term) || countryLower.includes(term)
+                );
+
+                if (!matchesAllIncludeTerms || isExcluded) {
+                    return false;
+                }
 
                 const matchesStartLetter = selectedSearchStartLetter === 'any' || cityLower.startsWith(selectedSearchStartLetter.toLowerCase());
                 const matchesEndLetter = selectedSearchEndLetter === 'any' || cityLower.endsWith(selectedSearchEndLetter.toLowerCase());
@@ -827,7 +856,7 @@
                 const matchesMinLength = cityLength >= minLength;
                 const matchesMaxLength = cityLength <= maxLength;
 
-                return matchesIncludeTerm && matchesExcludeTerm && matchesStartLetter && matchesEndLetter && matchesCountry && matchesMinLength && matchesMaxLength;
+                return matchesStartLetter && matchesEndLetter && matchesCountry && matchesMinLength && matchesMaxLength;
             });
 
             if (matchingPlaces.length === 0) {
@@ -849,7 +878,6 @@
             const selectedStartLetter = letterSelect.value;
             const selectedEndLetter = endLetterSelect.value;
             const selectedCountryFilter = (countrySelect.value === 'placeAndCountry' || countrySelect.value === 'any') ? 'any' : countrySelect.value;
-
 
             const filteredForDisplay = allPlaces.filter(place => {
                 const cityLower = place.city.toLowerCase();
